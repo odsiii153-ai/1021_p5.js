@@ -327,6 +327,7 @@ h1 {
 }
 
 .setup-panel {
+  min-width: 0;
   padding: 27px 25px 24px;
 }
 
@@ -566,6 +567,7 @@ h1 {
 }
 
 .mode-content {
+  min-width: 0;
   padding-top: 19px;
 }
 
@@ -581,6 +583,8 @@ h1 {
 }
 
 .field-label {
+  min-width: 0;
+  width: 100%;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -591,7 +595,10 @@ h1 {
 
 .field-label input,
 .field-label textarea {
+  display: block;
   width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 43px;
   padding: 10px 12px;
   border: 1px solid #373846;
@@ -943,6 +950,15 @@ h1 {
 
   .setup-panel {
     padding: 23px 19px;
+  }
+
+  .range-fields {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .range-separator {
+    display: none;
   }
 
   .group-panel {

@@ -252,12 +252,17 @@ function buildInterface() {
     if (event.key === "Enter") startDraw();
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && event.target.tagName !== "TEXTAREA" && event.target.id !== "draw-count") {
-      if (!isDrawing && !event.target.closest("button")) {
-        if (app.elt.classList.contains("grouping-mode")) startGrouping();
-        else startDraw();
-      }
-    }
+    const isSpace = event.code === "Space" || event.key === " ";
+    const isEnter = event.key === "Enter";
+    if (!isSpace && !isEnter) return;
+    const target = event.target;
+    if (target.closest("button") || isDrawing) return;
+    if (isSpace && (target.matches("input, textarea, select") || target.isContentEditable)) return;
+    if (isEnter && (target.tagName === "TEXTAREA" || target.id === "draw-count")) return;
+
+    if (isSpace) event.preventDefault();
+    if (app.elt.classList.contains("grouping-mode")) startGrouping();
+    else startDraw();
   });
 }
 
@@ -438,9 +443,8 @@ function renderGroups() {
     card.addClass("group-card");
     const memberItems = members.map((person) => {
       const isLeader = person.id === leaderId;
-      const genderLabel = person.gender ? ` (${escapeHtml(person.gender)})` : "";
       const leaderLabel = isLeader ? '<span class="leader-badge">組長</span>' : "";
-      return `<li class="group-member${isLeader ? " group-leader" : ""}">${leaderLabel}<span>${escapeHtml(person.name)}${genderLabel}</span></li>`;
+      return `<li class="group-member${isLeader ? " group-leader" : ""}">${leaderLabel}<span>${escapeHtml(person.name)}</span></li>`;
     }).join("");
     card.elt.innerHTML = `
       <div class="group-card-heading">
@@ -486,6 +490,10 @@ function getExcludedItems() {
       .map((item) => item.trim())
       .filter(Boolean),
   );
+}
+
+function getDisplayName(item) {
+  return String(item).replace(/\s*\((?:男|女)\)\s*$/, "");
 }
 
 function getEligibleItems() {
@@ -557,7 +565,7 @@ function startDraw() {
   const pool = eligibleResult.items.slice();
   const winners = [];
   animationInterval = window.setInterval(() => {
-    display.html(escapeHtml(pool[Math.floor(Math.random() * pool.length)]));
+    display.html(escapeHtml(getDisplayName(pool[Math.floor(Math.random() * pool.length)])));
   }, 75);
 
   animationTimeout = window.setTimeout(() => {
@@ -570,7 +578,7 @@ function startDraw() {
     }
     lastResults = winners;
     winners.forEach((winner) => drawnItems.add(winner));
-    display.html(winners.map(escapeHtml).join('<span class="winner-separator">・</span>'));
+    display.html(winners.map((winner) => escapeHtml(getDisplayName(winner))).join('<span class="winner-separator">・</span>'));
     display.addClass("result-pop");
     select("#result-kicker").html("CONGRATULATIONS!");
     select("#result-caption").html(winners.length === 1 ? "恭喜這位幸運同學！" : `恭喜這 ${winners.length} 位幸運同學！`);
@@ -595,7 +603,7 @@ function addHistory(winners) {
   row.addClass("history-entry");
   row.elt.innerHTML = `
     <span class="history-number">${String(historyEntries.length).padStart(2, "0")}</span>
-    <span class="history-winners">${winners.map(escapeHtml).join('<span class="winner-separator">・</span>')}</span>
+    <span class="history-winners">${winners.map((winner) => escapeHtml(getDisplayName(winner))).join('<span class="winner-separator">・</span>')}</span>
     <time class="history-time">${time}</time>
   `;
   row.parent(historyList);
