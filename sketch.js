@@ -12,6 +12,9 @@ let animationInterval = null;
 let animationTimeout = null;
 let audioContext = null;
 let audioUnavailable = false;
+let groups = [];
+let groupLeaders = new Map();
+let previousDrawRosterMode = "number";
 
 function setup() {
   const canvas = createCanvas(windowWidth, windowHeight);
@@ -65,6 +68,11 @@ function buildInterface() {
       <span class="topbar-note">公平・簡單・每一次都充滿期待</span>
     </header>
 
+    <nav class="app-mode-switch" aria-label="功能模式">
+      <button class="app-mode-tab active" id="draw-mode-tab" type="button" aria-pressed="true">抽籤</button>
+      <button class="app-mode-tab" id="group-mode-tab" type="button" aria-pressed="false">隨機分組</button>
+    </nav>
+
     <main class="main-layout">
       <section class="draw-panel" aria-labelledby="page-title">
         <div class="eyebrow"><span class="live-dot"></span> CLASSROOM RANDOM PICKER</div>
@@ -91,6 +99,39 @@ function buildInterface() {
           </button>
         </div>
         <p class="status-message" id="status-message" role="status"></p>
+      </section>
+
+      <section class="group-panel hidden" id="group-panel" aria-labelledby="group-title">
+        <div class="group-panel-heading">
+          <div>
+            <span class="section-label">RANDOM GROUPING</span>
+            <h2 id="group-title">隨機分組</h2>
+            <p class="group-description">設定每組人數與分組方式，立即產生公平的分組結果。</p>
+          </div>
+          <span class="setup-icon" aria-hidden="true">✦</span>
+        </div>
+        <div class="group-controls">
+          <label class="field-label" for="group-size">每組人數
+            <input id="group-size" type="number" min="1" step="1" value="4" inputmode="numeric">
+          </label>
+          <label class="field-label" for="group-strategy">分組方式
+            <select id="group-strategy">
+              <option value="random">純隨機</option>
+              <option value="mixed">男女混合（平均分配）</option>
+              <option value="separate">男女分開</option>
+            </select>
+          </label>
+          <button class="draw-button group-start-button" id="group-start-button" type="button">
+            <span aria-hidden="true">✦</span> 開始分組
+          </button>
+        </div>
+        <p class="field-hint group-format-hint">男女分組請將每位同學標示性別，例如：王小明 (男)、李小華 (女)。</p>
+        <p class="status-message group-status" id="group-status" role="status"></p>
+        <div class="group-results-heading hidden" id="group-results-heading">
+          <h3>分組結果</h3>
+          <button class="draw-button all-leaders-button" id="all-leaders-button" type="button">每組各抽一位組長</button>
+        </div>
+        <div class="group-results" id="group-results" aria-live="polite"></div>
       </section>
 
       <aside class="setup-panel" aria-label="抽籤設定">
@@ -122,7 +163,7 @@ function buildInterface() {
 
         <div class="mode-content hidden" id="name-mode-content">
           <label class="field-label" for="name-list">班級名單
-            <textarea id="name-list" rows="5" placeholder="王小明&#10;李小華&#10;陳同學" spellcheck="false"></textarea>
+            <textarea id="name-list" rows="5" placeholder="王小明 (男)&#10;李小華 (女)&#10;陳同學 (男)" spellcheck="false"></textarea>
           </label>
           <p class="field-hint">每行一位同學，名單會自動儲存在這台裝置</p>
         </div>
@@ -164,10 +205,18 @@ function buildInterface() {
         </div>
       </section>
     </main>
-    <footer class="footer-note">TIP：按 Enter 也可以快速抽籤</footer>
+    <footer class="footer-note">TIP：按 Enter 可快速抽籤或分組</footer>
   `;
 
   statusMessage = select("#status-message");
+  select("#draw-mode-tab").mousePressed(() => setAppMode("drawing"));
+  select("#group-mode-tab").mousePressed(() => setAppMode("grouping"));
+  select("#group-start-button").mousePressed(startGrouping);
+  select("#all-leaders-button").mousePressed(drawAllGroupLeaders);
+  app.elt.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-group-leader]");
+    if (button) drawGroupLeader(Number(button.dataset.groupLeader));
+  });
   select("#number-mode-tab").mousePressed(() => setMode("number"));
   select("#name-mode-tab").mousePressed(() => setMode("name"));
   select("#draw-button").mousePressed(startDraw);
@@ -194,16 +243,51 @@ function buildInterface() {
       showStatus("無法儲存名單，請檢查瀏覽器的儲存空間設定。", true);
     }
     refreshAvailability();
+    if (app.elt.classList.contains("grouping-mode")) clearGroupResults();
   });
+  select("#group-size").input(clearGroupResults);
+  select("#group-strategy").changed(clearGroupResults);
 
   select("#draw-count").elt.addEventListener("keydown", (event) => {
     if (event.key === "Enter") startDraw();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && event.target.tagName !== "TEXTAREA" && event.target.id !== "draw-count") {
-      if (!isDrawing && !event.target.closest("button")) startDraw();
+      if (!isDrawing && !event.target.closest("button")) {
+        if (app.elt.classList.contains("grouping-mode")) startGrouping();
+        else startDraw();
+      }
     }
   });
+}
+
+function setAppMode(mode) {
+  const grouping = mode === "grouping";
+  const wasGrouping = app.elt.classList.contains("grouping-mode");
+  if (grouping && !wasGrouping) previousDrawRosterMode = getCurrentMode();
+  app.elt.classList.toggle("grouping-mode", grouping);
+  select("#group-panel").elt.classList.toggle("hidden", !grouping);
+  select("#draw-mode-tab").elt.classList.toggle("active", !grouping);
+  select("#group-mode-tab").elt.classList.toggle("active", grouping);
+  select("#draw-mode-tab").elt.setAttribute("aria-pressed", String(!grouping));
+  select("#group-mode-tab").elt.setAttribute("aria-pressed", String(grouping));
+  if (grouping) setMode("name");
+  else if (wasGrouping) setMode(previousDrawRosterMode);
+  clearGroupStatus();
+}
+
+function clearGroupStatus() {
+  const status = select("#group-status");
+  status.html("");
+  status.removeClass("error");
+}
+
+function clearGroupResults() {
+  groups = [];
+  groupLeaders.clear();
+  select("#group-results").html("");
+  select("#group-results-heading").addClass("hidden");
+  clearGroupStatus();
 }
 
 function loadSavedNames() {
@@ -252,6 +336,147 @@ function getRoster() {
     .map((name) => name.trim())
     .filter(Boolean);
   return { items: Array.from(new Set(names)) };
+}
+
+function getNamedRoster() {
+  const lines = select("#name-list").value().split(/\r?\n/);
+  return lines
+    .map((line, index) => {
+      const value = line.trim();
+      if (!value) return null;
+      const genderMatch = value.match(/^(.*?)\s*\((男|女)\)\s*$/);
+      return {
+        id: index,
+        name: genderMatch ? genderMatch[1].trim() : value,
+        gender: genderMatch ? genderMatch[2] : null,
+      };
+    })
+    .filter((person) => person && person.name);
+}
+
+function shuffle(items) {
+  const shuffled = items.slice();
+  for (let index = shuffled.length - 1; index > 0; index -= 1) {
+    const randomIndex = Math.floor(Math.random() * (index + 1));
+    [shuffled[index], shuffled[randomIndex]] = [shuffled[randomIndex], shuffled[index]];
+  }
+  return shuffled;
+}
+
+function makeGroups(people, groupSize, strategy) {
+  if (strategy === "separate") {
+    const boys = shuffle(people.filter((person) => person.gender === "男"));
+    const girls = shuffle(people.filter((person) => person.gender === "女"));
+    return [boys, girls].flatMap((list) => {
+      const genderGroups = [];
+      for (let index = 0; index < list.length; index += groupSize) {
+        genderGroups.push(list.slice(index, index + groupSize));
+      }
+      return genderGroups;
+    });
+  }
+
+  const shuffled = shuffle(people);
+  const groupCount = Math.ceil(shuffled.length / groupSize);
+  const result = Array.from({ length: groupCount }, () => []);
+  if (strategy === "random") {
+    shuffled.forEach((person, index) => result[Math.floor(index / groupSize)].push(person));
+    return result;
+  }
+
+  ["男", "女"].forEach((gender) => {
+    shuffle(shuffled.filter((person) => person.gender === gender)).forEach((person) => {
+      const availableGroups = result
+        .map((members, index) => ({ members, index }))
+        .filter(({ members }) => members.length < groupSize);
+      const smallestGenderCount = Math.min(
+        ...availableGroups.map(({ members }) => members.filter((member) => member.gender === gender).length),
+      );
+      const candidates = availableGroups.filter(({ members }) =>
+        members.filter((member) => member.gender === gender).length === smallestGenderCount,
+      );
+      const fullestSize = Math.max(...candidates.map(({ members }) => members.length));
+      const balancedCandidates = candidates.filter(({ members }) => members.length === fullestSize);
+      const selected = balancedCandidates[Math.floor(Math.random() * balancedCandidates.length)];
+      result[selected.index].push(person);
+    });
+  });
+  return result;
+}
+
+function startGrouping() {
+  clearGroupStatus();
+  const people = getNamedRoster();
+  const groupSize = Number(select("#group-size").value());
+  const strategy = select("#group-strategy").value();
+  if (people.length === 0) {
+    showGroupStatus("請先在姓名名單中輸入至少一位同學。", true);
+    return;
+  }
+  if (!Number.isSafeInteger(groupSize) || groupSize < 1) {
+    showGroupStatus("每組人數請輸入大於 0 的整數。", true);
+    return;
+  }
+  if (strategy !== "random" && people.some((person) => !person.gender)) {
+    showGroupStatus("男女分組需要每位同學都使用「姓名 (男)」或「姓名 (女)」格式標示性別。", true);
+    return;
+  }
+
+  groups = makeGroups(people, groupSize, strategy);
+  groupLeaders.clear();
+  renderGroups();
+  showGroupStatus(`已將 ${people.length} 位同學分成 ${groups.length} 組。`, false);
+}
+
+function renderGroups() {
+  const container = select("#group-results");
+  container.html("");
+  select("#group-results-heading").removeClass("hidden");
+  groups.forEach((members, groupIndex) => {
+    const leaderId = groupLeaders.get(groupIndex);
+    const card = createDiv("");
+    card.addClass("group-card");
+    const memberItems = members.map((person) => {
+      const isLeader = person.id === leaderId;
+      const genderLabel = person.gender ? ` (${escapeHtml(person.gender)})` : "";
+      const leaderLabel = isLeader ? '<span class="leader-badge">組長</span>' : "";
+      return `<li class="group-member${isLeader ? " group-leader" : ""}">${leaderLabel}<span>${escapeHtml(person.name)}${genderLabel}</span></li>`;
+    }).join("");
+    card.elt.innerHTML = `
+      <div class="group-card-heading">
+        <h3>第 ${groupIndex + 1} 組</h3>
+        <span>${members.length} 人</span>
+      </div>
+      <ul class="group-member-list">${memberItems}</ul>
+      <button class="leader-button" type="button" data-group-leader="${groupIndex}">
+        ${leaderId === undefined ? "抽出本組組長" : "重新抽選組長"}
+      </button>
+    `;
+    card.parent(container);
+  });
+}
+
+function drawGroupLeader(groupIndex) {
+  const members = groups[groupIndex];
+  if (!members || members.length === 0) return;
+  groupLeaders.set(groupIndex, members[Math.floor(Math.random() * members.length)].id);
+  renderGroups();
+}
+
+function drawAllGroupLeaders() {
+  groups.forEach((members, groupIndex) => {
+    if (members.length > 0) {
+      groupLeaders.set(groupIndex, members[Math.floor(Math.random() * members.length)].id);
+    }
+  });
+  renderGroups();
+  showGroupStatus("已為每一組抽出組長。", false);
+}
+
+function showGroupStatus(message, isError) {
+  const status = select("#group-status");
+  status.html(escapeHtml(message));
+  status.elt.classList.toggle("error", isError);
 }
 
 function getExcludedItems() {
