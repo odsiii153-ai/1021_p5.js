@@ -195,11 +195,39 @@ h1 {
 }
 
 .result-display {
+  width: 100%;
   max-width: 100%;
-  padding: 4px 22px;
+  padding: 8px 16px;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: center;
+  gap: 18px;
+}
+
+.winner-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.winner-avatar {
+  width: clamp(64px, 10vw, 100px);
+  height: clamp(64px, 10vw, 100px);
+  border: 3px solid rgba(245, 198, 106, 0.72);
+  border-radius: 50%;
+  background: #292a38;
+  object-fit: cover;
+  box-shadow: 0 4px 18px rgba(245, 198, 106, 0.2);
+}
+
+.winner-name {
+  max-width: 100%;
   overflow-wrap: anywhere;
   color: #fff7e8;
-  font-size: clamp(48px, 7vw, 82px);
+  font-size: clamp(30px, 5vw, 52px);
   font-weight: 900;
   line-height: 1.2;
   text-shadow: 0 3px 28px rgba(245, 198, 106, 0.2);
@@ -534,6 +562,13 @@ h1 {
   font-size: 22px;
 }
 
+.history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .setup-icon {
   color: #b3ad9f;
   font-size: 20px;
@@ -781,6 +816,11 @@ h1 {
   color: #ffda91;
 }
 
+.reset-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
 .history-list {
   display: flex;
   flex-direction: column;
@@ -932,7 +972,11 @@ h1 {
   }
 
   .result-display {
-    font-size: clamp(42px, 13vw, 64px);
+    gap: 12px;
+  }
+
+  .winner-name {
+    font-size: clamp(30px, 9vw, 46px);
   }
 
   .draw-controls {
@@ -985,6 +1029,22 @@ h1 {
 
   .history-panel {
     padding: 21px 16px;
+  }
+
+  .history-heading {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .history-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+
+  .history-actions .reset-button {
+    flex: 1;
+    padding: 0 8px;
+    white-space: nowrap;
   }
 
   .history-entry {

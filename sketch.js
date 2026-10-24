@@ -81,7 +81,7 @@ function buildInterface() {
 
         <div class="result-stage" aria-live="polite" aria-atomic="true">
           <div class="result-kicker" id="result-kicker">準備好開始了嗎？</div>
-          <div class="result-display" id="result-display">?</div>
+          <div class="result-display" id="result-display"><span class="winner-name">?</span></div>
           <div class="result-caption" id="result-caption">設定名單後，按下抽籤吧</div>
         </div>
 
@@ -163,11 +163,22 @@ function buildInterface() {
 
         <div class="mode-content hidden" id="name-mode-content">
           <label class="field-label" for="name-list">班級名單
-            <textarea id="name-list" rows="5" placeholder="王小明 (男)&#10;李小華 (女)&#10;陳同學 (男)" spellcheck="false"></textarea>
+            <textarea id="name-list" rows="5" placeholder="王小明,images/01.jpg&#10;李小華,images/02.jpg&#10;陳同學 (男),images/03.jpg" spellcheck="false"></textarea>
           </label>
-          <p class="field-hint">每行一位同學，名單會自動儲存在這台裝置</p>
+            <p class="field-hint">每行一位同學，可用「姓名,圖片路徑」設定大頭貼；名單會儲存在這台裝置</p>
         </div>
 
+        <div class="settings-divider"></div>
+        <label class="toggle-row" for="sound-enabled">
+          <span class="toggle-copy">
+            <strong>抽籤音效</strong>
+            <small>抽籤完成時播放提示音</small>
+          </span>
+          <span class="switch">
+            <input id="sound-enabled" type="checkbox" checked>
+            <span class="switch-track"></span>
+          </span>
+        </label>
         <div class="settings-divider"></div>
         <label class="toggle-row" for="no-repeat">
           <span class="toggle-copy">
@@ -198,7 +209,10 @@ function buildInterface() {
             <span class="section-label">DRAW HISTORY</span>
             <h2 id="history-title">抽籤紀錄 <span class="history-total" id="history-total">0</span></h2>
           </div>
-          <button class="reset-button" id="reset-button" type="button">↻ 重置紀錄</button>
+          <div class="history-actions">
+            <button class="reset-button" id="export-csv-button" type="button" disabled>↓ 匯出 CSV</button>
+            <button class="reset-button" id="reset-button" type="button">↻ 重置紀錄</button>
+          </div>
         </div>
         <div class="history-list" id="history-list">
           <p class="empty-history">還沒有抽籤紀錄，試試手氣吧！</p>
@@ -220,6 +234,7 @@ function buildInterface() {
   select("#number-mode-tab").mousePressed(() => setMode("number"));
   select("#name-mode-tab").mousePressed(() => setMode("name"));
   select("#draw-button").mousePressed(startDraw);
+  select("#export-csv-button").mousePressed(exportHistoryCsv);
   select("#reset-button").mousePressed(resetDraws);
   select("#decrease-count").mousePressed(() => adjustDrawCount(-1));
   select("#increase-count").mousePressed(() => adjustDrawCount(1));
@@ -339,7 +354,7 @@ function getRoster() {
   const names = select("#name-list").value()
     .split(/\r?\n/)
     .map((name) => name.trim())
-    .filter(Boolean);
+    .filter((name) => name && parseRosterEntry(name).name);
   return { items: Array.from(new Set(names)) };
 }
 
@@ -349,14 +364,23 @@ function getNamedRoster() {
     .map((line, index) => {
       const value = line.trim();
       if (!value) return null;
-      const genderMatch = value.match(/^(.*?)\s*\((男|女)\)\s*$/);
+      const person = parseRosterEntry(value);
       return {
         id: index,
-        name: genderMatch ? genderMatch[1].trim() : value,
-        gender: genderMatch ? genderMatch[2] : null,
+        ...person,
       };
     })
     .filter((person) => person && person.name);
+}
+
+function parseRosterEntry(item) {
+  const [rawName, ...avatarParts] = String(item).split(",");
+  const genderMatch = rawName.trim().match(/^(.*?)\s*\((男|女)\)\s*$/);
+  return {
+    name: genderMatch ? genderMatch[1].trim() : rawName.trim(),
+    gender: genderMatch ? genderMatch[2] : null,
+    avatar: avatarParts.join(",").trim(),
+  };
 }
 
 function shuffle(items) {
@@ -493,7 +517,7 @@ function getExcludedItems() {
 }
 
 function getDisplayName(item) {
-  return String(item).replace(/\s*\((?:男|女)\)\s*$/, "");
+  return parseRosterEntry(item).name;
 }
 
 function getEligibleItems() {
@@ -502,7 +526,12 @@ function getEligibleItems() {
   const excluded = getExcludedItems();
   const noRepeat = select("#no-repeat").checked();
   const items = roster.items.filter((item) => {
-    return !excluded.has(item) && (!noRepeat || !drawnItems.has(item));
+    const person = parseRosterEntry(item);
+    const genderedName = person.gender ? `${person.name} (${person.gender})` : "";
+    return !excluded.has(item)
+      && !excluded.has(person.name)
+      && (!genderedName || !excluded.has(genderedName))
+      && (!noRepeat || !drawnItems.has(item));
   });
   return { items };
 }
@@ -553,7 +582,7 @@ function startDraw() {
   }
 
   clearStatus();
-  prepareAudio();
+  if (select("#sound-enabled").checked()) prepareAudio();
   isDrawing = true;
   select("#draw-button").elt.disabled = true;
   select("#draw-button").html('<span aria-hidden="true">✦</span> 抽籤中…');
@@ -565,7 +594,7 @@ function startDraw() {
   const pool = eligibleResult.items.slice();
   const winners = [];
   animationInterval = window.setInterval(() => {
-    display.html(escapeHtml(getDisplayName(pool[Math.floor(Math.random() * pool.length)])));
+    renderDrawResults([pool[Math.floor(Math.random() * pool.length)]]);
   }, 75);
 
   animationTimeout = window.setTimeout(() => {
@@ -578,7 +607,7 @@ function startDraw() {
     }
     lastResults = winners;
     winners.forEach((winner) => drawnItems.add(winner));
-    display.html(winners.map((winner) => escapeHtml(getDisplayName(winner))).join('<span class="winner-separator">・</span>'));
+    renderDrawResults(winners);
     display.addClass("result-pop");
     select("#result-kicker").html("CONGRATULATIONS!");
     select("#result-caption").html(winners.length === 1 ? "恭喜這位幸運同學！" : `恭喜這 ${winners.length} 位幸運同學！`);
@@ -594,7 +623,7 @@ function startDraw() {
 function addHistory(winners) {
   const now = new Date();
   const time = now.toLocaleTimeString("zh-TW", { hour: "2-digit", minute: "2-digit" });
-  const record = { winners, time };
+  const record = { sequence: historyEntries.length + 1, winners, time, timestamp: now.toLocaleString("zh-TW") };
   historyEntries.unshift(record);
 
   const historyList = select("#history-list");
@@ -602,12 +631,65 @@ function addHistory(winners) {
   const row = createDiv("");
   row.addClass("history-entry");
   row.elt.innerHTML = `
-    <span class="history-number">${String(historyEntries.length).padStart(2, "0")}</span>
+    <span class="history-number">${String(record.sequence).padStart(2, "0")}</span>
     <span class="history-winners">${winners.map((winner) => escapeHtml(getDisplayName(winner))).join('<span class="winner-separator">・</span>')}</span>
     <time class="history-time">${time}</time>
   `;
   row.parent(historyList);
   select("#history-total").html(String(historyEntries.length));
+  select("#export-csv-button").elt.disabled = false;
+}
+
+function renderDrawResults(items) {
+  const display = select("#result-display").elt;
+  display.replaceChildren();
+  items.forEach((item) => {
+    const person = parseRosterEntry(item);
+    const card = document.createElement("div");
+    card.className = "winner-card";
+    if (person.avatar) {
+      const image = document.createElement("img");
+      image.className = "winner-avatar";
+      image.src = person.avatar;
+      image.alt = `${person.name} 大頭貼`;
+      image.addEventListener("error", () => image.remove(), { once: true });
+      card.appendChild(image);
+    }
+    const name = document.createElement("span");
+    name.className = "winner-name";
+    name.textContent = person.name;
+    card.appendChild(name);
+    display.appendChild(card);
+  });
+}
+
+function escapeCsvValue(value) {
+  let text = String(value);
+  if (/^[\t\r ]*[=+\-@]/.test(text)) text = `'${text}`;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function exportHistoryCsv() {
+  if (historyEntries.length === 0) return;
+  const rows = [
+    ["抽籤序號", "抽籤時間", "抽中姓名"],
+    ...historyEntries.map((entry) => [
+      entry.sequence,
+      entry.timestamp,
+      entry.winners.map(getDisplayName).join("、"),
+    ]),
+  ];
+  const csv = `\uFEFF${rows.map((row) => row.map(escapeCsvValue).join(",")).join("\r\n")}`;
+  const file = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(file);
+  const link = document.createElement("a");
+  const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+  link.href = url;
+  link.download = `draw-history-${timestamp}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 function resetDraws() {
@@ -622,8 +704,9 @@ function resetDraws() {
   confetti = [];
   select("#history-list").html('<p class="empty-history">還沒有抽籤紀錄，試試手氣吧！</p>');
   select("#history-total").html("0");
+  select("#export-csv-button").elt.disabled = true;
   select("#result-kicker").html("準備好開始了嗎？");
-  select("#result-display").html("?");
+  select("#result-display").html('<span class="winner-name">?</span>');
   select("#result-caption").html("設定名單後，按下抽籤吧");
   select("#result-display").removeClass("result-pop");
   select("#draw-button").html('<span aria-hidden="true">✦</span> 開始抽籤');
@@ -647,6 +730,7 @@ function launchConfetti() {
 }
 
 function playWinSound() {
+  if (!select("#sound-enabled").checked()) return;
   try {
     if (!audioContext || audioUnavailable) throw new Error("音效無法播放");
     const notes = [523.25, 659.25, 783.99, 1046.5];
